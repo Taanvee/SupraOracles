@@ -1,0 +1,89 @@
+module UpvoteGame {
+
+  import 0x1::Aptos;
+
+  public struct Wallet {
+    amount: u64,
+    owner: address,
+  }
+
+  public struct Proposal {
+    proposer: address,
+    name: vector<u8>,
+    upvotes: u64,
+  }
+
+  public struct Round {
+    ongoing: bool,
+    current_proposals: vector<Proposal>,
+  }
+
+  public public(script) fun create_wallet(amount: u64): Wallet {
+    return Wallet {
+      amount: amount,
+      owner: get_txn_sender(),
+    };
+  }
+
+
+  public public(script) fun create_proposal(name: vector<u8>): Proposal {
+    return Proposal {
+      proposer: get_txn_sender(),
+      name: name,
+      upvotes: 0,
+    };
+  }
+
+
+  public public(script) fun upvote_proposal(proposal: &Proposal, amount: u64) {
+    let sender = get_txn_sender();
+    assert(sender != proposal.proposer, 1);
+
+     let num_upvotes = amount / UPVOTE_PRICE;
+
+    Proposal::upvotes_mut(move(proposal)) += num_upvotes;
+
+    Aptos::transfer_from_sender_to_address(move(amount), DAPP_WALLET);
+
+    if Proposal::upvotes(move(proposal)) >= MAX_UPVOTES {
+
+      end_round();
+    }
+  }
+
+
+  public public(script) fun end_round() {
+
+
+    for proposal in &ROUNDS[round_index].current_proposals {
+      Aptos::burn(move(proposal));
+    }
+
+
+    ROUNDS[round_index].ongoing = false;
+    ROUNDS[round_index].current_proposals = empty<Proposal>();
+  }
+
+
+  public public(script) fun start_round() {
+    assert(!ROUNDS[round_index].ongoing, 2);
+
+
+    ROUNDS[round_index].ongoing = true;
+  }
+
+
+  const MAX_UPVOTES: u64 = 10;
+  const UPVOTE_PRICE: u64 = 5;
+  const DAPP_WALLET: address = 0x42; 
+
+
+  public ROUNDS: vector<Round>;
+
+  public round_index: u64;
+
+
+  public public(script) fun init() {
+    round_index = 0;
+  }
+}
