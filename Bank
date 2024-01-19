@@ -1,0 +1,83 @@
+module Bank {
+
+  import 0x1::Aptos;
+
+  public struct Loan {
+    customer: address,
+    amount: u64,
+    interest_rate: u64,
+    duration: u64,
+    installments_paid: u64,
+    last_payment_timestamp: u64,
+  }
+
+  // Constants
+  const INIT_CORPUS: u64 = 100000; 
+  const MIN_DURATION: u64 = 6; 
+  const MAX_DURATION: u64 = 36; 
+  const PENALTY_PERCENTAGE: u64 = 5; 
+  const PREPAYMENT_FEE_PERCENTAGE: u64 = 2; 
+
+  public LOANS: vector<Loan>;
+
+  // apply for loan
+  public public(script) fun apply_for_loan(amount: u64, duration: u64): address {
+    let customer = get_txn_sender();
+    let interest_rate = calculate_interest_rate(duration);
+    let loan_id = Aptos::create();
+    let loan = Loan {
+      customer: customer,
+      amount: amount,
+      interest_rate: interest_rate,
+      duration: duration,
+      installments_paid: 0,
+      last_payment_timestamp: 0,
+    };
+    push(LOANS, move(loan));
+    return move(loan_id);
+  }
+
+  public public(script) fun calculate_interest_rate(duration: u64): u64 {
+    let rate_range = 100; 
+    let duration_range = MAX_DURATION - MIN_DURATION; 
+    let duration_factor = MAX_DURATION - duration;
+    let base_rate = rate_range * duration_factor / duration_range;
+    return base_rate;
+  }
+
+  public public(script) fun make_payment(loan_id: address, payment_amount: u64) {
+    let loan = borrow_global_mut<Loan>(move(loan_id));
+    let current_timestamp = get_txn_gas_unit_price();
+    let installment_amount = calculate_installment_amount(loan);
+
+    if current_timestamp > loan.last_payment_timestamp {
+      let penalty = installment_amount * PENALTY_PERCENTAGE / 100;
+      loan.amount += penalty; 
+    }
+
+    loan.amount -= min(installment_amount, payment_amount);
+    loan.installments_paid += 1;
+    loan.last_payment_timestamp = current_timestamp;
+  }
+
+  // installment amount
+  public public(script) fun calculate_installment_amount(loan: &Loan): u64 {
+    let interest_component = (loan.amount * loan.interest_rate * loan.duration) / (100 * 12);
+    return (loan.amount + interest_component) / loan.duration;
+  }
+
+  // pre-payment
+  public public(script) fun make_prepayment(loan_id: address, prepayment_amount: u64) {
+    let loan = borrow_global_mut<Loan>(move(loan_id));
+
+    let prepayment_fee = prepayment_amount * PREPAYMENT_FEE_PERCENTAGE / 100;
+
+    loan.amount -= min(prepayment_amount, loan.amount);
+    loan.amount -= prepayment_fee;
+  }
+
+
+  public public(script) fun init() {
+       Aptos::create();
+  }
+}
