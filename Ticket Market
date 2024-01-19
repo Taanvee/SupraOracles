@@ -1,0 +1,115 @@
+module TicketMarket {
+
+  import 0x1::Aptos;
+
+  public struct Event {
+    organizer: address,
+    initial_price: u64,
+    total_tickets: u64,
+    event_date: u64,
+  }
+
+  public struct Ticket {
+    event_id: address,
+    owner: address,
+    price: u64,
+  }
+
+  public struct Trade {
+    buyer: address,
+    seller: address,
+    ticket: Ticket,
+    buying_price: u64,
+  }
+
+
+  const COMMISSION_PERCENTAGE: u64 = 1;
+  const BUYER_COMMISSION_PERCENTAGE: u64 = 0.5;
+  const SELLER_COMMISSION_PERCENTAGE: u64 = 0.5;
+
+
+  public EVENTS: vector<Event>;
+
+  public TICKETS: vector<Ticket>;
+
+  public TRADES: vector<Trade>;
+
+  // To create an event
+  public public(script) fun create_event(initial_price: u64, total_tickets: u64, event_date: u64): address {
+    let organizer = get_txn_sender();
+    let event_id = Aptos::create();
+    let event = Event {
+      organizer: organizer,
+      initial_price: initial_price,
+      total_tickets: total_tickets,
+      event_date: event_date,
+    };
+    push(EVENTS, move(event));
+    return move(event_id);
+  }
+
+  //To buy a ticket
+  public public(script) fun buy_ticket(event_id: address, buying_price: u64) {
+    let buyer = get_txn_sender();
+    let cheapest_ticket = get_cheapest_ticket(event_id);
+
+    let commission = buying_price * BUYER_COMMISSION_PERCENTAGE / 100;
+    Aptos::transfer_from_sender_to_address(move(commission), DAPP_WALLET);
+
+    let seller_price = buying_price - commission;
+    let seller = cheapest_ticket.owner;
+    Aptos::transfer_from_sender_to_address(move(seller_price), seller);
+
+    let ticket = Ticket {
+      event_id: event_id,
+      owner: buyer,
+      price: buying_price,
+    };
+    push(TICKETS, move(ticket));
+
+    let seller_ticket_index = index_of_ticket(cheapest_ticket);
+    if seller_ticket_index >= 0 {
+      swap_remove(TICKETS, seller_ticket_index);
+    }
+  }
+
+  // Sell a ticket
+  public public(script) fun sell_ticket(event_id: address, selling_price: u64) {
+    let seller = get_txn_sender();
+    let ticket = Ticket {
+      event_id: event_id,
+      owner: seller,
+      price: selling_price,
+    };
+    push(TICKETS, move(ticket));
+  }
+
+  public public(script) fun get_cheapest_ticket(event_id: address): &Ticket {
+    let cheapest_ticket = borrow_opt(
+      filter(TICKETS, |t| t.event_id == event_id && t.owner != get_txn_sender()),
+      |t1, t2| t1.price < t2.price,
+    );
+    abort_opt(cheapest_ticket, 3);
+  }
+
+  public public(script) fun match_buyers_and_sellers(event_id: address) {
+    let buyers = filter(TRADES, |t| t.ticket.event_id == event_id && t.buyer == get_txn_sender());
+    let sellers = filter(TRADES, |t| t.ticket.event_id == event_id && t.seller == get_txn_sender());
+
+    for buyer in buyers {
+      for seller in sellers {
+        if buyer.buying_price >= seller.ticket.price {
+          buy_ticket(event_id, buyer.buying_price);
+          break;
+        }
+      }
+    }
+  }
+
+   public public(script) fun index_of_ticket(ticket: &Ticket): int {
+    index_of(TICKETS, ticket)
+  }
+
+  const DAPP_WALLET: address = 0x42;
+
+}
